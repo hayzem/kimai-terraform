@@ -1,0 +1,32 @@
+services:
+  sqldb:
+    image: mysql:8.3
+    volumes:
+      - ${data_mount_path}/mysql:/var/lib/mysql
+    env_file:
+      - .env
+    command: --default-storage-engine innodb
+    restart: unless-stopped
+    healthcheck:
+      test: mysqladmin -uroot -p$$MYSQL_ROOT_PASSWORD ping -h 127.0.0.1 --silent
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  kimai:
+    image: kimai/kimai2:stable
+    healthcheck:
+      disable: true
+    depends_on:
+      sqldb:
+        condition: service_healthy
+        restart: true
+    volumes:
+      - ${data_mount_path}/kimai/data:/opt/kimai/var/data
+      - ${data_mount_path}/kimai/plugins:/opt/kimai/var/plugins
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    restart: unless-stopped

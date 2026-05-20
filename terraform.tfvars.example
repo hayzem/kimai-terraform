@@ -1,0 +1,30 @@
+aws_region          = "us-east-2"
+# aws_profile       = "my-aws-profile"
+instance_type       = "t3.small"
+
+# Full hostname (no https://). Must match your ACM certificate.
+kimai_hostname      = "kimai.example.com"
+acm_certificate_arn = "arn:aws:acm:us-east-2:123456789012:certificate/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+app_secret              = "change-me-long-random-string"
+database_name           = "kimai"
+database_user           = "kimai"
+database_password       = "change-me-db-password"
+database_root_password  = "change-me-root-password"
+
+admin_email    = "admin@example.com"
+admin_password = "change-me-admin-password"
+
+timezone = "America/New_York"
+
+# Email disabled by default. See README and https://www.kimai.org/documentation/emails.html
+mailer_from = "kimai@example.com"
+mailer_url  = "null://null"
+# mailer_url = "smtps://user:password@smtp.example.com:465"
+
+# Optional: defaults to default VPC CIDR (ALB/proxy trust). Use IP/CIDR only, not hostnames.
+# trusted_proxies = "10.0.0.0/16"
+
+# kimai_data_volume_size_gb = 30
+# kimai_data_mount_path     = "/data"
+# kimai_instance_subnet_id  = null

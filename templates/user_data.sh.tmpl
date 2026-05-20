@@ -1,0 +1,103 @@
+#!/bin/bash
+
+set -euo pipefail
+
+DATA_MOUNT_PATH="${data_mount_path}"
+KIMAI_APP_DIR="$DATA_MOUNT_PATH/kimai"
+
+apt-get update
+apt-get install -y e2fsprogs curl
+
+mkdir -p "$DATA_MOUNT_PATH"
+
+resolve_root_disk() {
+  local src real pk
+  src="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
+  [ -z "$src" ] && { echo ""; return; }
+  real="$(readlink -f "$src" 2>/dev/null || echo "$src")"
+  pk="$(lsblk -ndo pkname "$real" 2>/dev/null | head -1 || true)"
+  [ -n "$pk" ] && echo "/dev/$pk" || echo ""
+}
+
+DATA_DISK=""
+for _ in $(seq 1 60); do
+  ROOT_DISK="$(resolve_root_disk)"
+
+  shopt -s nullglob
+  for id_path in /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_*; do
+    dev="$(readlink -f "$id_path")"
+    [ -b "$dev" ] || continue
+    dpk="$(lsblk -ndo pkname "$dev" 2>/dev/null | head -1 || true)"
+    [ -n "$dpk" ] && dpk="/dev/$dpk"
+    if [ -n "$ROOT_DISK" ] && [ "$dpk" = "$ROOT_DISK" ]; then
+      continue
+    fi
+    DATA_DISK="$dev"
+    break
+  done
+  shopt -u nullglob
+
+  if [ -z "$DATA_DISK" ] && [ -n "$ROOT_DISK" ]; then
+    for disk in $(lsblk -dpno NAME,TYPE | awk '$2 == "disk" {print $1}'); do
+      if [ "$disk" != "$ROOT_DISK" ]; then
+        DATA_DISK="$disk"
+        break
+      fi
+    done
+  fi
+
+  if [ -n "$DATA_DISK" ]; then
+    break
+  fi
+  sleep 5
+done
+
+if [ -z "$DATA_DISK" ]; then
+  echo "No attached data disk found for Kimai persistence" >&2
+  exit 1
+fi
+
+if ! blkid "$DATA_DISK" >/dev/null 2>&1; then
+  mkfs.ext4 -F "$DATA_DISK"
+fi
+
+UUID="$(blkid -s UUID -o value "$DATA_DISK")"
+if ! grep -q "$UUID" /etc/fstab; then
+  echo "UUID=$UUID $DATA_MOUNT_PATH ext4 defaults,nofail 0 2" >> /etc/fstab
+fi
+mount -a
+
+mkdir -p "$DATA_MOUNT_PATH/docker"
+mkdir -p "$DATA_MOUNT_PATH/mysql"
+mkdir -p "$DATA_MOUNT_PATH/kimai/data"
+mkdir -p "$DATA_MOUNT_PATH/kimai/plugins"
+mkdir -p /etc/docker
+cat <<EOT >/etc/docker/daemon.json
+{
+  "data-root": "$DATA_MOUNT_PATH/docker"
+}
+EOT
+
+apt-get install -y docker.io
+
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -SL https://github.com/docker/compose/releases/download/v2.24.2/docker-compose-linux-x86_64 \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+systemctl daemon-reload
+systemctl enable docker
+systemctl start docker
+
+mkdir -p "$KIMAI_APP_DIR"
+cd "$KIMAI_APP_DIR"
+
+cat <<EOT > .env
+${env_file}
+EOT
+
+cat <<EOT > docker-compose.yml
+${compose_file}
+EOT
+
+docker compose up -d
